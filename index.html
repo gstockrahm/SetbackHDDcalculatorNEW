@@ -247,7 +247,6 @@ function clearOutputs() {
     document.getElementById('longOut').innerHTML = "<i>N/A</i>";
 }
 
-// NEW CORE ENGINE: Generates a smooth, field-accurate constant curve path
 function generateConstantCurvatureProfile(entryPitch, targetDepth, rodL, bendPerRod) {
     let profile = { possible: true, rods: [], setback: 0, totalRods: 0 };
     
@@ -279,21 +278,29 @@ function generateConstantCurvatureProfile(entryPitch, targetDepth, rodL, bendPer
 
     // Build the rod-by-rod plan tracking center-line position and running pitch
     for (let i = 1; i <= totalRodsCount; i++) {
+        // Calculate the distance at the END of this specific rod segment
         let currentDistance = i * rodL;
+        
+        // Prevent the rod distance loop from overshooting the mathematical end of the bore path
+        if (currentDistance > totalLength) {
+            currentDistance = totalLength;
+        }
+        
         let currentPitch = 0;
 
         if (currentDistance <= straightLength) {
-            // Section A: We are in the straight entry track
-            x += rodL * Math.cos(theta0);
-            y += rodL * Math.sin(theta0);
+            // Section A: Straight track section
+            x = currentDistance * Math.cos(theta0);
+            y = currentDistance * Math.sin(theta0);
             currentPitch = entryPitch;
         } else {
-            // Section B: We have entered the transition arc
-            let sCurve = Math.min(currentDistance - straightLength, theta0 / k);
+            // Section B: Smooth transition arc section
+            let sCurve = currentDistance - straightLength;
             let theta = theta0 - (k * sCurve);
             
-            x += rodL * Math.cos(theta);
-            y += rodL * Math.sin(theta);
+            // Integrate positions using exact geometric tracking
+            x = (straightLength * Math.cos(theta0)) + ((Math.sin(theta0) - Math.sin(theta)) / k);
+            y = (straightLength * Math.sin(theta0)) + ((Math.cos(theta) - Math.cos(theta0)) / k);
             currentPitch = Math.max(0, Math.tan(theta) * 100);
         }
 
