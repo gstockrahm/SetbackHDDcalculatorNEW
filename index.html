@@ -1,0 +1,430 @@
+HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HDD Setback & Bore Plan Calculator</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f6f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        h1 {
+            text-align: center;
+            color: #1a365d;
+            margin-bottom: 30px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 30px;
+        }
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+        .input-panel {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #4a5568;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #1d4ed8;
+        }
+        .error-msg {
+            background-color: #fee2e2;
+            border: 1px solid #ef4444;
+            color: #b91c1c;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: none;
+            font-weight: bold;
+        }
+        .results-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .scenarios {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+        @media (max-width: 600px) {
+            .scenarios { grid-template-columns: 1fr; }
+        }
+        .card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+        }
+        .card.active { border-color: #2563eb; background-color: #eff6ff; }
+        .card h3 { margin-top: 0; color: #1e3a8a; border-bottom: 2px solid #e2e8f0; padding-bottom: 5px;}
+        .rod-list {
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+            background: #f8fafc;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        canvas {
+            width: 100%;
+            background: #fafafa;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>HDD Setback & Bore Plan Calculator</h1>
+    
+    <div id="errorBox" class="error-msg"></div>
+
+    <div class="grid">
+        <div class="input-panel">
+            <div class="input-group">
+                <label for="entryPitch">Entry Pitch (%)</label>
+                <input type="number" id="entryPitch" value="20" step="0.1">
+            </div>
+            <div class="input-group">
+                <label for="rodLength">Rod Length (ft)</label>
+                <input type="number" id="rodLength" value="10" step="0.1">
+            </div>
+            <div class="input-group">
+                <label for="targetDepth">Target Depth (ft)</label>
+                <input type="number" id="targetDepth" value="12" step="0.1">
+            </div>
+            <div class="input-group">
+                <label for="maxBend">Max Bend Per Rod (% change)</label>
+                <input type="number" id="maxBend" value="4" step="0.1">
+            </div>
+            <div class="input-group">
+                <label for="desiredSetback">Desired Setback Length (ft)</label>
+                <input type="number" id="desiredSetback" value="65" step="0.1">
+            </div>
+            <button onclick="calculateBore()">Calculate Bore Plans</button>
+        </div>
+
+        <div class="results-panel">
+            <div class="scenarios">
+                <div class="card" id="shortCard">
+                    <h3>Short (Max Bend)</h3>
+                    <div id="shortOut"></div>
+                </div>
+                <div class="card" id="medCard">
+                    <h3>Medium Turn</h3>
+                    <div id="medOut"></div>
+                </div>
+                <div class="card" id="longCard">
+                    <h3>Long / Gradual</h3>
+                    <div id="longOut"></div>
+                </div>
+            </div>
+            
+            <canvas id="boreCanvas" width="800" height="300"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+function calculateBore() {
+    // 1. CLEAR everything out immediately so the user sees the app respond
+    const errorBox = document.getElementById('errorBox');
+    errorBox.style.display = 'none';
+    errorBox.innerText = "";
+    
+    document.getElementById('shortOut').innerHTML = "Calculating...";
+    document.getElementById('medOut').innerHTML = "Calculating...";
+    document.getElementById('longOut').innerHTML = "Calculating...";
+    
+    const canvas = document.getElementById('boreCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    document.getElementById('shortCard').classList.remove('active');
+    document.getElementById('medCard').classList.remove('active');
+    document.getElementById('longCard').classList.remove('active');
+
+    // 2. Read inputs
+    const P0 = parseFloat(document.getElementById('entryPitch').value);
+    const rodL = parseFloat(document.getElementById('rodLength').value);
+    const targetDepth = parseFloat(document.getElementById('targetDepth').value);
+    const maxBend = parseFloat(document.getElementById('maxBend').value);
+    const desiredSetback = parseFloat(document.getElementById('desiredSetback').value);
+
+    // 3. Robust Validation (Catches blank fields and negative numbers)
+    if (isNaN(P0) || isNaN(rodL) || isNaN(targetDepth) || isNaN(maxBend) ||
+        P0 <= 0 || rodL <= 0 || targetDepth <= 0 || maxBend <= 0) {
+        showError("Please enter valid positive numbers for all parameters.");
+        clearOutputs();
+        return;
+    }
+
+    // 4. Generate profiles
+    const shortPlan = generateProfile(P0, targetDepth, rodL, maxBend);
+    const medPlan = generateProfile(P0, targetDepth, rodL, maxBend * 0.6);
+    const longPlan = generateProfile(P0, targetDepth, rodL, maxBend * 0.35);
+
+    // If even the sharpest turn can't make it, abort and flash a clear error
+    if (!shortPlan.possible) {
+        showError(`ERROR: Bore impossible! Even at max allowable bend (${maxBend}%), the drill string cannot level out before overshooting the target depth. Decrease entry pitch or increase allowable bend.`);
+        clearOutputs();
+        return;
+    }
+
+    // 5. Render fresh text outputs
+    renderOutput('shortOut', shortPlan);
+    renderOutput('medOut', medPlan);
+    renderOutput('longOut', longPlan);
+
+    // 6. Highlight the card closest to the foreman's target setback
+    let diffs = [];
+    if (shortPlan.possible) diffs.push({id: 'shortCard', val: Math.abs(shortPlan.setback - desiredSetback)});
+    if (medPlan.possible) diffs.push({id: 'medCard', val: Math.abs(medPlan.setback - desiredSetback)});
+    if (longPlan.possible) diffs.push({id: 'longCard', val: Math.abs(longPlan.setback - desiredSetback)});
+    
+    if (diffs.length > 0) {
+        diffs.sort((a,b) => a.val - b.val);
+        document.getElementById(diffs[0].id).classList.add('active');
+    }
+
+    // 7. Draw the new visual graph
+    drawBorePlans([shortPlan, medPlan, longPlan], targetDepth);
+}
+
+function clearOutputs() {
+    document.getElementById('shortOut').innerHTML = "<i>N/A</i>";
+    document.getElementById('medOut').innerHTML = "<i>N/A</i>";
+    document.getElementById('longOut').innerHTML = "<i>N/A</i>";
+}
+
+function generateProfile(entryPitch, targetDepth, rodL, bendPerRod) {
+    let profile = { possible: true, rods: [], setback: 0, totalRods: 0 };
+    let curveRods = [];
+    let currentPitch = entryPitch;
+    let curveDepthChange = 0;
+    let curveHorizontalChange = 0;
+
+    while (currentPitch > 0) {
+        let angleRad = Math.atan(currentPitch / 100);
+        let dY = rodL * Math.sin(angleRad);
+        let dX = rodL * Math.cos(angleRad);
+
+        curveRods.push({
+            pitchBefore: currentPitch,
+            pitchAfter: Math.max(0, currentPitch - bendPerRod),
+            dX: dX,
+            dY: dY
+        });
+
+        curveDepthChange += dY;
+        curveHorizontalChange += dX;
+        currentPitch -= bendPerRod;
+    }
+
+    if (curveDepthChange > targetDepth) {
+        profile.possible = false;
+        return profile;
+    }
+
+    let straightDepthNeeded = targetDepth - curveDepthChange;
+    let entryAngleRad = Math.atan(entryPitch / 100);
+    let straightDYPerRod = rodL * Math.sin(entryAngleRad);
+    let straightDXPerRod = rodL * Math.cos(entryAngleRad);
+
+    let numStraightRods = straightDepthNeeded / straightDYPerRod;
+    let x = 0;
+    let y = 0;
+    let totalRodsCount = 0;
+
+    let fullStraightRods = Math.floor(numStraightRods);
+    for (let i = 0; i < fullStraightRods; i++) {
+        totalRodsCount++;
+        x += straightDXPerRod;
+        y += straightDYPerRod;
+        profile.rods.push({ rodNum: totalRodsCount, pitch: entryPitch, x: x, y: y });
+    }
+
+    let remStraight = numStraightRods - fullStraightRods;
+    if (remStraight > 0) {
+        totalRodsCount++;
+        x += straightDXPerRod * remStraight;
+        y += straightDYPerRod * remStraight;
+        profile.rods.push({ rodNum: totalRodsCount, pitch: entryPitch, x: x, y: y });
+    }
+
+    for (let i = 0; i < curveRods.length; i++) {
+        totalRodsCount++;
+        x += curveRods[i].dX;
+        y += curveRods[i].dY;
+        profile.rods.push({ rodNum: totalRodsCount, pitch: curveRods[i].pitchAfter, x: x, y: y });
+    }
+
+    profile.setback = x;
+    profile.totalRods = totalRodsCount;
+    return profile;
+}
+
+function renderOutput(elementId, plan) {
+    if (!plan.possible) {
+        document.getElementById(elementId).innerHTML = "<p>Not possible with this configuration.</p>";
+        return;
+    }
+    
+    let html = `
+        <p><strong>Setback:</strong> ${plan.setback.toFixed(1)} ft</p>
+        <p><strong>Total Rods:</strong> ${plan.totalRods.toFixed(1)}</p>
+        <div class="rod-list">
+            <strong>Rod-by-Rod Pitch Plan:</strong><br>
+    `;
+
+    plan.rods.forEach((r, index) => {
+        let displayPitch = r.pitch.toFixed(1);
+        
+        if (index === 0) {
+            // First rod treatment
+            html += `Rod 1: <b>Entry pitch rod at ${displayPitch}%</b><br>`;
+        } else {
+            // Check if the pitch changed from the previous rod
+            let previousPitch = plan.rods[index - 1].pitch.toFixed(1);
+            
+            if (displayPitch === previousPitch) {
+                html += `Rod ${index + 1}: <b>Keep at ${displayPitch}%</b><br>`;
+            } else {
+                html += `Rod ${index + 1}: <b>Adjust to ${displayPitch}%</b><br>`;
+            }
+        }
+    });
+    
+    html += `</div>`;
+    document.getElementById(elementId).innerHTML = html;
+}
+
+function showError(msg) {
+    const errorBox = document.getElementById('errorBox');
+    errorBox.innerText = msg;
+    errorBox.style.display = 'block';
+}
+
+function drawBorePlans(plans, targetDepth) {
+    const canvas = document.getElementById('boreCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    let validPlans = plans.filter(p => p.possible);
+    if (validPlans.length === 0) return;
+
+    let maxSetback = Math.max(...validPlans.map(p => p.setback));
+    
+    let marginX = 50;
+    let marginY = 40;
+    let scaleX = (canvas.width - marginX * 2) / (maxSetback * 1.1);
+    let scaleY = (canvas.height - marginY * 2) / (targetDepth * 1.3);
+
+    // Ground Line
+    ctx.beginPath();
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 2;
+    ctx.moveTo(0, marginY);
+    ctx.lineTo(canvas.width, marginY);
+    ctx.stroke();
+    ctx.fillStyle = '#64748b';
+    ctx.fillText("Ground Level", 10, marginY - 10);
+
+    // Target Line
+    ctx.beginPath();
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.setLineDash([5, 5]);
+    ctx.moveTo(0, marginY + targetDepth * scaleY);
+    ctx.lineTo(canvas.width, marginY + targetDepth * scaleY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(`Target Depth (${targetDepth} ft)`, 10, marginY + targetDepth * scaleY + 15);
+
+    const colors = ['#e11d48', '#2563eb', '#16a34a'];
+    const labels = ['Short', 'Medium', 'Long'];
+
+    plans.forEach((plan, index) => {
+        if(!plan.possible) return;
+
+        ctx.beginPath();
+        ctx.strokeStyle = colors[index];
+        ctx.lineWidth = 3;
+        
+        let entryX = marginX + (maxSetback - plan.setback) * scaleX;
+        ctx.moveTo(entryX, marginY);
+
+        plan.rods.forEach(rod => {
+            let cx = entryX + rod.x * scaleX;
+            let cy = marginY + rod.y * scaleY;
+            ctx.lineTo(cx, cy);
+        });
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.fillStyle = colors[index];
+        ctx.arc(entryX, marginY, 4, 0, 2 * Math.PI);
+        ctx.fill();
+
+        ctx.fillStyle = colors[index];
+        ctx.font = "bold 12px sans-serif";
+        ctx.fillText(`${labels[index]}: ${plan.setback.toFixed(1)} ft setback`, entryX, marginY + 25 + (index * 15));
+    });
+}
+
+window.onload = calculateBore;
+</script>
+
+</body>
+</html>
