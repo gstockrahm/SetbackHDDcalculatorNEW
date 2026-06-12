@@ -174,156 +174,174 @@
         </div>
     </div>
 </div>
+<div class="card" id="customCard">
+    <h3>Custom Target</h3>
+    <div id="customOut"><i>Enter a desired setback...</i></div>
+</div>
 
 <script>
 function calculateBore() {
-    // 1. Clear out previous data immediately
+    // 1. Reset display elements
     const errorBox = document.getElementById('errorBox');
-    errorBox.style.display = 'none';
-    errorBox.innerText = "";
+    if(errorBox) { errorBox.style.display = 'none'; errorBox.innerText = ""; }
     
     document.getElementById('shortOut').innerHTML = "Calculating...";
     document.getElementById('medOut').innerHTML = "Calculating...";
     document.getElementById('longOut').innerHTML = "Calculating...";
+    if(document.getElementById('customOut')) document.getElementById('customOut').innerHTML = "Calculating...";
     
     const canvas = document.getElementById('boreCanvas');
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    document.getElementById('shortCard').classList.remove('active');
-    document.getElementById('medCard').classList.remove('active');
-    document.getElementById('longCard').classList.remove('active');
+    ['shortCard', 'medCard', 'longCard', 'customCard'].forEach(id => {
+        if(document.getElementById(id)) document.getElementById(id).classList.remove('active');
+    });
 
-    // 2. Read inputs
+    // 2. Read field variables
     const P0 = parseFloat(document.getElementById('entryPitch').value);
     const rodL = parseFloat(document.getElementById('rodLength').value);
     const targetDepth = parseFloat(document.getElementById('targetDepth').value);
     const maxBend = parseFloat(document.getElementById('maxBend').value);
     const desiredSetback = parseFloat(document.getElementById('desiredSetback').value);
 
-    // 3. Validation
     if (isNaN(P0) || isNaN(rodL) || isNaN(targetDepth) || isNaN(maxBend) ||
         P0 <= 0 || rodL <= 0 || targetDepth <= 0 || maxBend <= 0) {
-        showError("Please enter valid positive numbers for all parameters.");
-        clearOutputs();
+        showError("Please enter valid positive numbers for all core parameters.");
         return;
     }
 
-    // 4. Generate Constant Curvature Profiles
-    // Short uses max allowable bend. Med and Long use smoother fractions.
-    const shortPlan = generateConstantCurvatureProfile(P0, targetDepth, rodL, maxBend);
-    const medPlan = generateConstantCurvatureProfile(P0, targetDepth, rodL, maxBend * 0.6);
-    const longPlan = generateConstantCurvatureProfile(P0, targetDepth, rodL, maxBend * 0.35);
+    // 3. Generate Standard Arc Profiles
+    const shortPlan = generateMinimumCurvatureProfile(P0, targetDepth, rodL, maxBend);
+    const medPlan = generateMinimumCurvatureProfile(P0, targetDepth, rodL, maxBend * 0.6);
+    const longPlan = generateMinimumCurvatureProfile(P0, targetDepth, rodL, maxBend * 0.35);
 
+    // If the absolute tightest allowed bend can't make it, the entire configuration is impossible
     if (!shortPlan.possible) {
-        showError(`ERROR: Bore impossible! At max allowable bend (${maxBend}%), the drill string cannot smoothly level out at ${targetDepth} ft without overshooting. Decrease entry pitch or increase allowable bend.`);
-        clearOutputs();
+        showError(`ERROR: Bore configuration structurally impossible. Even at maximum allowable bend (${maxBend}%), the rods cannot curve up fast enough to hit a ${targetDepth} ft depth.`);
+        renderOutput('shortOut', shortPlan);
+        renderOutput('medOut', medPlan);
+        renderOutput('longOut', longPlan);
         return;
     }
 
-    // 5. Render outputs to the screen
+    // 4. Calculate CUSTOM TARGET Setback Profile
+    let customPlan = { possible: false, errorMsg: "Enter a targeted footprint distance to calculate a custom plan." };
+    if (!isNaN(desiredSetback) && desiredSetback > 0) {
+        let theta0 = Math.atan(P0 / 100);
+        let absoluteMinSetback = shortPlan.naturalSetback;
+
+        if (desiredSetback < absoluteMinSetback) {
+            customPlan.errorMsg = `Target too close! Requires exceeding your ${maxBend}% safety limit.`;
+        } else {
+            customPlan = generateMinimumCurvatureProfile(P0, targetDepth, rodL, maxBend, desiredSetback);
+            customPlan.isCustom = true;
+        }
+    }
+
+    // 5. Render Data to Display Cards (Handles "Not Available" automatically)
     renderOutput('shortOut', shortPlan);
     renderOutput('medOut', medPlan);
     renderOutput('longOut', longPlan);
 
-    // 6. Highlight closest match card
-    let diffs = [];
-    if (shortPlan.possible) diffs.push({id: 'shortCard', val: Math.abs(shortPlan.setback - desiredSetback)});
-    if (medPlan.possible) diffs.push({id: 'medCard', val: Math.abs(medPlan.setback - desiredSetback)});
-    if (longPlan.possible) diffs.push({id: 'longCard', val: Math.abs(longPlan.setback - desiredSetback)});
-    
-    if (diffs.length > 0) {
-        diffs.sort((a,b) => a.val - b.val);
-        document.getElementById(diffs[0].id).classList.add('active');
+    if(document.getElementById('customOut')) {
+        if(customPlan.possible) {
+            renderOutput('customOut', customPlan);
+            document.getElementById('customCard').classList.add('active');
+        } else {
+            document.getElementById('customOut').innerHTML = `<p style="color:#e11d48; font-weight:bold; margin-top:10px;">${customPlan.errorMsg}</p>`;
+        }
     }
 
-    // 7. Redraw visual chart
-    drawBorePlans([shortPlan, medPlan, longPlan], targetDepth);
+    // 6. Map Line Aesthetics for Graphing
+    shortPlan.label = "Short"; shortPlan.color = "#e11d48";
+    medPlan.label = "Medium"; medPlan.color = "#2563eb";
+    longPlan.label = "Long"; longPlan.color = "#16a34a";
+    customPlan.label = "Target"; customPlan.color = "#9333ea";
+
+    // Gather only the plans that are mathematically possible to draw on the chart
+    let plansToDraw = [shortPlan, medPlan, longPlan];
+    if (customPlan.possible) plansToDraw.push(customPlan);
+
+    drawBorePlans(plansToDraw, targetDepth);
 }
 
-function clearOutputs() {
-    document.getElementById('shortOut').innerHTML = "<i>N/A</i>";
-    document.getElementById('medOut').innerHTML = "<i>N/A</i>";
-    document.getElementById('longOut').innerHTML = "<i>N/A</i>";
-}
-
-function generateConstantCurvatureProfile(entryPitch, targetDepth, rodL, bendPerRod) {
-    let profile = { possible: true, rods: [], setback: 0, totalRods: 0 };
+// ADVANCED ENGINE: Tracks true continuous circular arc paths across the rod string
+function generateMinimumCurvatureProfile(entryPitch, targetDepth, rodL, bendPerRod, targetSetback) {
+    let profile = { possible: true, rods: [], setback: 0, totalRods: 0, naturalSetback: 0 };
     
-    // Convert entry pitch percent to true radians for exact geometric modeling
     let theta0 = Math.atan(entryPitch / 100);
-    
-    // Approximate angle change limit per foot of rod based on the user's input parameter
     let thetaChangePerRod = Math.atan(bendPerRod / 100);
-    let k = thetaChangePerRod / rodL; // Curvature constant (radians per foot)
+    let k = thetaChangePerRod / rodL; 
 
-    // Calculate vertical depth consumed purely during a continuous, perfect transition curve
     let curveDepth = (1 - Math.cos(theta0)) / k;
 
-    // Field Check: If the depth needed to transition smoothly exceeds the target depth, it's a bust
+    // Guardrail: If the bend is too gradual to level out before hitting or passing the target depth
     if (curveDepth > targetDepth) {
         profile.possible = false;
         return profile;
     }
 
-    // The remaining depth is covered by driving a perfectly straight entry line
     let straightDepth = targetDepth - curveDepth;
     let straightLength = straightDepth / Math.sin(theta0);
-
-    let totalLength = straightLength + (theta0 / k);
-    let totalRodsCount = Math.ceil(totalLength / rodL);
+    let curveLength = theta0 / k;
     
-    let x = 0;
-    let y = 0;
+    let naturalX = (straightLength * Math.cos(theta0)) + (Math.sin(theta0) / k);
+    profile.naturalSetback = naturalX;
 
-    // Build the rod-by-rod plan tracking center-line position and running pitch
+    let flatLengthNeeded = 0;
+    if (targetSetback !== undefined && targetSetback > naturalX) {
+        flatLengthNeeded = targetSetback - naturalX;
+    }
+
+    let totalPathLength = straightLength + curveLength + flatLengthNeeded;
+    let totalRodsCount = Math.ceil(totalPathLength / rodL);
+
     for (let i = 1; i <= totalRodsCount; i++) {
-        // Calculate the distance at the END of this specific rod segment
-        let currentDistance = i * rodL;
-        
-        // Prevent the rod distance loop from overshooting the mathematical end of the bore path
-        if (currentDistance > totalLength) {
-            currentDistance = totalLength;
-        }
-        
-        let currentPitch = 0;
+        let s = Math.min(i * rodL, totalPathLength);
+        let x = 0, y = 0, theta = 0;
+        let isFlat = false;
 
-        if (currentDistance <= straightLength) {
-            // Section A: Straight track section
-            x = currentDistance * Math.cos(theta0);
-            y = currentDistance * Math.sin(theta0);
-            currentPitch = entryPitch;
-        } else {
-            // Section B: Smooth transition arc section
-            let sCurve = currentDistance - straightLength;
-            let theta = theta0 - (k * sCurve);
-            
-            // Integrate positions using exact geometric tracking
+        if (s <= straightLength) {
+            x = s * Math.cos(theta0);
+            y = s * Math.sin(theta0);
+            theta = theta0;
+        } else if (s <= straightLength + curveLength) {
+            let s_curve = s - straightLength;
+            theta = theta0 - (k * s_curve);
             x = (straightLength * Math.cos(theta0)) + ((Math.sin(theta0) - Math.sin(theta)) / k);
             y = (straightLength * Math.sin(theta0)) + ((Math.cos(theta) - Math.cos(theta0)) / k);
-            currentPitch = Math.max(0, Math.tan(theta) * 100);
+        } else {
+            let s_flat = s - (straightLength + curveLength);
+            x = naturalX + s_flat;
+            y = targetDepth;
+            theta = 0;
+            isFlat = true;
         }
 
         profile.rods.push({
             rodNum: i,
-            pitch: currentPitch,
+            pitch: Math.max(0, Math.tan(theta) * 100),
             x: x,
-            y: y
+            y: y,
+            isFlat: isFlat
         });
     }
 
-    profile.setback = x;
-    profile.totalRods = totalLength / rodL;
+    profile.setback = Math.max(...profile.rods.map(r => r.x));
+    profile.totalRods = totalPathLength / rodL;
     return profile;
 }
 
 function renderOutput(elementId, plan) {
-    if (!plan.possible) {
-        document.getElementById(elementId).innerHTML = "<p>Not possible with this configuration.</p>";
+    // If the plan broke engineering constraints, gracefully output a clean placeholder label
+    if (!plan || !plan.possible) {
+        document.getElementById(elementId).innerHTML = `<p style="color:#94a3b8; font-style:italic; font-weight:500; margin-top:10px; font-size:1.1rem;">⚠️ Not Available</p>`;
         return;
     }
+
     let html = `
-        <p><strong>Setback:</strong> ${plan.setback.toFixed(1)} ft</p>
+        <p><strong>Actual Setback:</strong> ${plan.setback.toFixed(1)} ft</p>
         <p><strong>Total Rods:</strong> ${plan.totalRods.toFixed(1)}</p>
         <div class="rod-list">
             <strong>Rod-by-Rod Pitch Plan:</strong><br>
@@ -331,15 +349,16 @@ function renderOutput(elementId, plan) {
 
     plan.rods.forEach((r, index) => {
         let displayPitch = r.pitch.toFixed(1);
-        
-        if (index === 0) {
+        if (r.isFlat) {
+            html += `Rod ${r.rodNum}: <span style="color: #16a34a;"><b>Coast flat at 0.0% (At Target)</b></span><br>`;
+        } else if (index === 0) {
             html += `Rod 1: <b>Entry pitch rod at ${displayPitch}%</b><br>`;
         } else {
             let previousPitch = plan.rods[index - 1].pitch.toFixed(1);
             if (displayPitch === previousPitch) {
-                html += `Rod ${index + 1}: <b>Keep at ${displayPitch}%</b><br>`;
+                html += `Rod ${r.rodNum}: <b>Keep at ${displayPitch}%</b><br>`;
             } else {
-                html += `Rod ${index + 1}: <b>Adjust to ${displayPitch}%</b><br>`;
+                html += `Rod ${r.rodNum}: <b>Adjust to ${displayPitch}%</b><br>`;
             }
         }
     });
@@ -349,8 +368,7 @@ function renderOutput(elementId, plan) {
 
 function showError(msg) {
     const errorBox = document.getElementById('errorBox');
-    errorBox.innerText = msg;
-    errorBox.style.display = 'block';
+    if(errorBox) { errorBox.innerText = msg; errorBox.style.display = 'block'; }
 }
 
 function drawBorePlans(plans, targetDepth) {
@@ -358,46 +376,32 @@ function drawBorePlans(plans, targetDepth) {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    let validPlans = plans.filter(p => p.possible);
+    // Only look at working plans to establish the graph dimensions
+    let validPlans = plans.filter(p => p && p.possible);
     if (validPlans.length === 0) return;
 
     let maxSetback = Math.max(...validPlans.map(p => p.setback));
     
-    let marginX = 50;
-    let marginY = 40;
+    let marginX = 50, marginY = 40;
     let scaleX = (canvas.width - marginX * 2) / (maxSetback * 1.1);
     let scaleY = (canvas.height - marginY * 2) / (targetDepth * 1.3);
 
     // Draw Ground Line
-    ctx.beginPath();
-    ctx.strokeStyle = '#64748b';
-    ctx.lineWidth = 2;
-    ctx.moveTo(0, marginY);
-    ctx.lineTo(canvas.width, marginY);
-    ctx.stroke();
-    ctx.fillStyle = '#64748b';
-    ctx.fillText("Ground Level", 10, marginY - 10);
+    ctx.beginPath(); ctx.strokeStyle = '#64748b'; ctx.lineWidth = 2;
+    ctx.moveTo(0, marginY); ctx.lineTo(canvas.width, marginY); ctx.stroke();
+    ctx.fillStyle = '#64748b'; ctx.fillText("Ground Level", 10, marginY - 10);
 
     // Draw Target Line
-    ctx.beginPath();
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.setLineDash([5, 5]);
-    ctx.moveTo(0, marginY + targetDepth * scaleY);
-    ctx.lineTo(canvas.width, marginY + targetDepth * scaleY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText(`Target Depth (${targetDepth} ft)`, 10, marginY + targetDepth * scaleY + 15);
-
-    const colors = ['#e11d48', '#2563eb', '#16a34a'];
-    const labels = ['Short', 'Medium', 'Long'];
+    ctx.beginPath(); ctx.strokeStyle = '#cbd5e1'; ctx.setLineDash([5, 5]);
+    ctx.moveTo(0, marginY + targetDepth * scaleY); ctx.lineTo(canvas.width, marginY + targetDepth * scaleY); ctx.stroke();
+    ctx.setLineDash([]); ctx.fillStyle = '#94a3b8'; ctx.fillText(`Target Depth (${targetDepth} ft)`, 10, marginY + targetDepth * scaleY + 15);
 
     plans.forEach((plan, index) => {
-        if(!plan.possible) return;
+        if (!plan || !plan.possible) return; // Skip drawing any broken lines entirely
 
         ctx.beginPath();
-        ctx.strokeStyle = colors[index];
-        ctx.lineWidth = 3;
+        ctx.strokeStyle = plan.color;
+        ctx.lineWidth = plan.isCustom ? 4 : 3;
         
         let entryX = marginX + (maxSetback - plan.setback) * scaleX;
         ctx.moveTo(entryX, marginY);
@@ -409,14 +413,9 @@ function drawBorePlans(plans, targetDepth) {
         });
         ctx.stroke();
 
-        ctx.beginPath();
-        ctx.fillStyle = colors[index];
-        ctx.arc(entryX, marginY, 4, 0, 2 * Math.PI);
-        ctx.fill();
-
-        ctx.fillStyle = colors[index];
+        ctx.beginPath(); ctx.fillStyle = plan.color; ctx.arc(entryX, marginY, 4, 0, 2 * Math.PI); ctx.fill();
         ctx.font = "bold 12px sans-serif";
-        ctx.fillText(`${labels[index]}: ${plan.setback.toFixed(1)} ft setback`, entryX, marginY + 25 + (index * 15));
+        ctx.fillText(`${plan.label}: ${plan.setback.toFixed(1)} ft`, entryX, marginY + 25 + (index * 15));
     });
 }
 
